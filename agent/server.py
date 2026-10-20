@@ -106,7 +106,9 @@ app = FastAPI(title=settings.AGENT_NAME)
 async def health():
     provider = get_provider()
     return {"ok": True, "agent": settings.AGENT_NAME, "agent_id": settings.AGENT_ID,
-            "wallet": provider.address if provider else None, "time": int(time.time())}
+            "wallet": provider.address if provider else None, "base_url": settings.BASE_URL,
+            "deliverables": "ipfs" if settings.STORAGE_API_KEY else "local", "gateway": settings.STORAGE_GATEWAY_URL,
+            "cron_configured": bool(settings.CRON_SECRET), "time": int(time.time())}
 
 
 @app.get("/.well-known/agent-card.json")
