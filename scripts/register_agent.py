@@ -56,6 +56,17 @@ IDENTITY_ABI = [
 FUGU_ABI = [
     {"type": "function", "name": "listingByAgentId", "stateMutability": "view",
      "inputs": [{"name": "", "type": "uint256"}], "outputs": [{"type": "uint256"}]},
+    {"type": "function", "name": "getListing", "stateMutability": "view",
+     "inputs": [{"name": "listingId", "type": "uint256"}],
+     "outputs": [{"type": "tuple", "components": [
+         {"name": "erc8004AgentId", "type": "uint256"}, {"name": "owner", "type": "address"},
+         {"name": "agentWallet", "type": "address"}, {"name": "category", "type": "uint8"},
+         {"name": "priceUsd8PerPeriod", "type": "uint128"}, {"name": "periodSeconds", "type": "uint32"},
+         {"name": "active", "type": "bool"}, {"name": "curated", "type": "bool"},
+         {"name": "metadataURI", "type": "string"}]}]},
+    {"type": "function", "name": "updateListing", "stateMutability": "nonpayable",
+     "inputs": [{"name": "listingId", "type": "uint256"}, {"name": "priceUsd8PerPeriod", "type": "uint128"},
+                {"name": "periodSeconds", "type": "uint32"}, {"name": "metadataURI", "type": "string"}], "outputs": []},
     {"type": "function", "name": "list", "stateMutability": "nonpayable",
      "inputs": [{"name": "erc8004AgentId", "type": "uint256"}, {"name": "agentWallet", "type": "address"},
                 {"name": "category", "type": "uint8"}, {"name": "priceUsd8PerPeriod", "type": "uint128"},
@@ -120,7 +131,12 @@ def main():
     if args.hellofugu:
         fugu = w3.eth.contract(FUGU_REGISTRY, abi=FUGU_ABI)
         listing = fugu.functions.listingByAgentId(agent_id).call()
-        if listing:
+        if listing and fugu.functions.getListing(listing).call()[8] != agent_uri:
+            fn = fugu.functions.updateListing(listing, FUGU_PRICE_USD8, FUGU_PERIOD_SECONDS, agent_uri)
+            fn.call({"from": owner.address})
+            send_tx(w3, owner, fn.build_transaction({"from": owner.address}))
+            print(f"4. HelloFugu listing {listing}: metadataURI updated")
+        elif listing:
             print(f"4. already listed on HelloFugu (listing {listing})")
         else:
             fn = fugu.functions.list(agent_id, agent.address, FUGU_YIELD_CATEGORY, FUGU_PRICE_USD8,

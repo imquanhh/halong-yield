@@ -192,6 +192,15 @@ def _completed_task(data: dict, text: str, context_id: str | None) -> dict:
     }
 
 
+def _sells_on_our_chain(data: dict) -> bool:
+    """True if the request names no chain, or names ours (as int or string, in chain_id or escrow_chains)."""
+    named = {data.get("chain_id"), *(data.get("escrow_chains") or [])} - {None}
+    try:
+        return not named or settings.CHAIN_ID in {int(c) for c in named}
+    except (TypeError, ValueError):
+        return False
+
+
 def _parse(message: dict) -> tuple[dict, str]:
     data, texts = {}, []
     for part in message.get("parts", []):
@@ -219,7 +228,7 @@ async def a2a(request: Request):
     if skill in ("negotiate", "negotiate-erc8183-job"):
         if provider is None:
             return _rpc_error(req_id, -32000, "Quoting is not configured on this deployment")
-        if data.get("chain_id") not in (None, settings.CHAIN_ID):
+        if not _sells_on_our_chain(data):
             return {"jsonrpc": "2.0", "id": req_id, "result": _message({"response": {
                 "accepted": False, "reason": f"This agent sells on chain {settings.CHAIN_ID} (BSC testnet) only."}})}
         envelope = await asyncio.to_thread(provider.negotiate, data)
@@ -232,7 +241,7 @@ async def a2a(request: Request):
             job_id = int(data.get("job_id"))
         except (TypeError, ValueError):
             return _rpc_error(req_id, -32602, "notify_funded needs an integer job_id")
-        if data.get("chain_id") not in (None, settings.CHAIN_ID):
+        if not _sells_on_our_chain({"chain_id": data.get("chain_id")}):
             reply = {"status": "rejected", "job_id": job_id, "reason": f"escrow must be on chain {settings.CHAIN_ID}"}
         else:
             check = await provider.ops.verify_job(job_id)

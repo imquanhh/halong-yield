@@ -66,9 +66,9 @@ class Provider:
     # ------------------------------------------------------------------ quotes
 
     def negotiate(self, data: dict) -> dict:
-        task = (data.get("task_description") or data.get("task") or "").strip()
+        task = (data.get("task_description") or data.get("task") or "").strip() or report.DEFAULT_TASK
         terms = data.get("terms") if isinstance(data.get("terms"), dict) else DEFAULT_TERMS
-        if not task or not report.in_scope(task):
+        if not report.in_scope(task):
             return {"request": {"task_description": task},
                     "response": {"accepted": False, "reason": report.SCOPE_HINT}}
         envelope = self.negotiator.negotiate({"task_description": task, "terms": {**DEFAULT_TERMS, **terms}}).to_dict()

@@ -13,6 +13,12 @@ from . import chain, settings, strategy, venus
 
 SCOPE_WORDS = ("yield", "apy", "apr", "interest", "earn", "lend", "lending", "supply", "deposit", "venus",
                "stable", "usdt", "usdc", "fdusd", "dai", "usd1", "usde", "busd", "savings", "park", "idle")
+# Briefs that belong to another kind of agent. Anything else (including a generic or empty
+# brief, as marketplace probes send) is quoted as this agent's one service: a yield assessment.
+OFF_TOPIC_WORDS = ("safe to buy", "token safety", "honeypot", "rug", "audit", "liquidity position", "lp range",
+                   "lp position", "in range", "range check", "re-centre", "recenter", "grid", "health factor", "liquidation", "borrow limit", "nft", "meme", "airdrop",
+                   "copy trade", "swap for me", "buy ", "sell ")
+DEFAULT_TASK = "Stablecoin yield assessment on Venus (BNB Chain) for 1,000 USDT over 365 days"
 ASSETS = ("USDT", "USDC", "FDUSD", "USD1", "DAI", "USDe", "BUSD", "TUSD", "lisUSD")
 DEFAULT_AMOUNT = 1_000.0
 MAX_UTILIZATION = 92.0
@@ -23,7 +29,9 @@ SCOPE_HINT = ("Halong Yield answers stablecoin yield questions on BNB Chain (Ven
 
 def in_scope(task: str) -> bool:
     text = task.lower()
-    return any(w in text for w in SCOPE_WORDS) or "$u" in text
+    if any(w in text for w in SCOPE_WORDS) or "$u" in text:
+        return True
+    return not any(w in text for w in OFF_TOPIC_WORDS)
 
 
 def parse_brief(task: str) -> dict:
