@@ -148,6 +148,19 @@ async def deliverable(job_id: int):
     return FileResponse(path, media_type="application/json")
 
 
+@app.get("/cron/{task}")
+async def cron(task: str, request: Request):
+    """Daily Vercel Cron backup for the GitHub Actions schedule (see vercel.json)."""
+    if not settings.CRON_SECRET or request.headers.get("authorization") != f"Bearer {settings.CRON_SECRET}":
+        raise HTTPException(401, "unauthorized")
+    from . import worker
+    if task == "tick":
+        return await worker.tick()
+    if task == "cycle":
+        return {"actions": await asyncio.to_thread(strategy.run_cycle)}
+    raise HTTPException(404, "unknown task")
+
+
 @app.get("/hellofugu/{sub_id}")
 async def hellofugu_report(sub_id: int):
     result = await asyncio.to_thread(fugu.subscription_report, sub_id)

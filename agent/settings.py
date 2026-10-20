@@ -34,7 +34,16 @@ EXPLORER = "https://testnet.bscscan.com"
 
 IDENTITY_REGISTRY = "0x8004A818BFB912233c491871b3d84c89A494BD9e"
 AGENT_ID = int(os.getenv("AGENT_ID") or 0) or None
-BASE_URL = (os.getenv("PUBLIC_BASE_URL") or "http://localhost:8000").rstrip("/")
+
+
+def _https(value: str) -> str:
+    value = value.strip().rstrip("/")
+    return value if value.startswith(("http://", "https://")) else f"https://{value}"
+
+
+# On Vercel the production domain comes from its system variable, so the card can never point
+# elsewhere; PUBLIC_BASE_URL is for other hosts (and for GitHub Actions).
+BASE_URL = _https(os.getenv("VERCEL_PROJECT_PRODUCTION_URL") or os.getenv("PUBLIC_BASE_URL") or "http://localhost:8000")
 
 AGENT_PRIVATE_KEY = (os.getenv("AGENT_PRIVATE_KEY") or "").strip()
 WALLET_PASSWORD = os.getenv("WALLET_PASSWORD") or "halong-yield"  # SDK requires one; nothing is persisted
@@ -45,7 +54,12 @@ JOB_PRICE_WEI = int(os.getenv("JOB_PRICE_WEI") or 5 * 10**16)
 # Deliverables are pinned to IPFS (Pinata JWT) and served through an HTTPS gateway.
 # Without a key (local development) they are written to DATA_DIR and served by the app itself.
 STORAGE_API_KEY = os.getenv("STORAGE_API_KEY") or ""
-STORAGE_GATEWAY_URL = (os.getenv("STORAGE_GATEWAY_URL") or "https://gateway.pinata.cloud/ipfs/").rstrip("/")
+STORAGE_GATEWAY_URL = _https(os.getenv("STORAGE_GATEWAY_URL") or "https://gateway.pinata.cloud/ipfs")
+if not STORAGE_GATEWAY_URL.endswith("/ipfs"):
+    STORAGE_GATEWAY_URL += "/ipfs"
+
+# Vercel Cron sends "Authorization: Bearer $CRON_SECRET"; without a secret the cron routes stay closed.
+CRON_SECRET = os.getenv("CRON_SECRET") or ""
 DATA_DIR = Path(os.getenv("DATA_DIR") or ("/tmp/halong" if os.getenv("VERCEL") else ROOT / ".agent-data"))
 
 
