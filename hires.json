@@ -1,0 +1,34 @@
+[
+  {
+    "marketplace": "HelloFugu",
+    "listingId": 23,
+    "agent": "97:2554",
+    "category": "yield",
+    "periods": 4,
+    "durationSeconds": 3600,
+    "usd": 0.2,
+    "amountWei": 274668820510788,
+    "alreadyHired": false,
+    "subId": 27,
+    "txHash": "0x3dda1483de8263442172818ca9ade0ae72f6195be13c29533c5f2476e6275727",
+    "explorer": "https://testnet.bscscan.com/tx/0x3dda1483de8263442172818ca9ade0ae72f6195be13c29533c5f2476e6275727",
+    "wallet": "0x97Ff1a1101011db815d3C573113fC4d9c5Fa9872",
+    "loggedAt": "2026-10-20T01:48:01Z"
+  },
+  {
+    "marketplace": "HelloFugu",
+    "listingId": 21,
+    "agent": "97:2545",
+    "category": "rebalancing",
+    "periods": 30,
+    "durationSeconds": 3600,
+    "usd": 1.5,
+    "amountWei": 2060016153830911,
+    "alreadyHired": false,
+    "subId": 28,
+    "txHash": "0x3dd32c5dc53634905c21789c6bff9041e0a6ac250cd10f5c5ea049d0114b6e41",
+    "explorer": "https://testnet.bscscan.com/tx/0x3dd32c5dc53634905c21789c6bff9041e0a6ac250cd10f5c5ea049d0114b6e41",
+    "wallet": "0x97Ff1a1101011db815d3C573113fC4d9c5Fa9872",
+    "loggedAt": "2026-10-20T01:48:07Z"
+  }
+]
