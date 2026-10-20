@@ -1,9 +1,9 @@
 """HelloFugu: subscriptions to this agent's listing.
 
 A HelloFugu hire is FuguSubscription.subscribe: the renter's tBNB is escrowed and streamed to
-the listing owner by the second. While a subscription runs, the agent keeps a yield report
-for the renter's wallet at /hellofugu/<subId>. Once it ends, the agent calls the permissionless
-claim(), which pays out the rest and marks the hire complete (claimed == deposited).
+the listing owner by the second. While a subscription runs, /hellofugu/<subId> serves a live
+yield report for the renter's wallet. Once it ends, the agent calls the permissionless claim(),
+which pays out the rest and marks the hire complete (claimed == deposited).
 """
 
 import logging
@@ -11,14 +11,13 @@ import time
 
 from web3 import Web3
 
-from . import chain, report, settings, state
+from . import chain, report, settings
 
 log = logging.getLogger("halong.fugu")
 
 REGISTRY = Web3.to_checksum_address("0xb2f36070E6eae3353E8e755172B477DF213ae248")
 SUBSCRIPTION = Web3.to_checksum_address("0xfdb083371f44Cf53181350389D3217e51B431776")
-RESCAN_DEPTH = 200
-REPORT_REFRESH_SECONDS = 3600
+SCAN_DEPTH = 300  # most recent subscriptions checked on each poll
 
 REGISTRY_ABI = [{"type": "function", "name": "listingByAgentId", "stateMutability": "view",
                  "inputs": [{"name": "", "type": "uint256"}], "outputs": [{"type": "uint256"}]}]
@@ -38,6 +37,10 @@ SUBSCRIPTION_ABI = [
 ]
 
 
+def _subscription():
+    return chain.testnet().eth.contract(SUBSCRIPTION, abi=SUBSCRIPTION_ABI)
+
+
 def listing_id() -> int:
     if not settings.AGENT_ID:
         return 0
@@ -45,30 +48,30 @@ def listing_id() -> int:
     return reg.functions.listingByAgentId(settings.AGENT_ID).call()
 
 
-def tick() -> None:
+def claim_ended() -> list[dict]:
+    """Claim every ended subscription to our listing that still holds escrow."""
     lid = listing_id()
     if not lid:
-        return
-    sub = chain.testnet().eth.contract(SUBSCRIPTION, abi=SUBSCRIPTION_ABI)
+        return []
+    sub = _subscription()
     count = sub.functions.subCount().call()
-    cursor = state.get("fugu_sub_cursor") or max(0, count - RESCAN_DEPTH)
-    for sub_id in range(cursor + 1, count + 1):
+    claimed = []
+    for sub_id in range(max(1, count - SCAN_DEPTH + 1), count + 1):
         s = sub.functions.getSub(sub_id).call()
-        if s[0] == lid:
-            state.update(lambda st: st["fugu_reports"].setdefault(
-                str(sub_id), {"subscriber": s[1], "ends_at": s[6], "report": None, "updated": 0}))
-    state.update(lambda st: st.__setitem__("fugu_sub_cursor", count))
-
-    now = time.time()
-    for key, info in list(state.get("fugu_reports").items()):
-        if info.get("claimed"):
+        if s[0] != lid or time.time() < s[6] or sub.functions.claimable(sub_id).call() == 0:
             continue
-        sub_id = int(key)
-        if now < info["ends_at"] and now - info["updated"] > REPORT_REFRESH_SECONDS:
-            rep = report.assessment(f"Best stablecoin yield on Venus for wallet {info['subscriber']}")
-            state.update(lambda st: st["fugu_reports"][key].update(report=rep, updated=int(now)))
-        elif now >= info["ends_at"]:
-            if sub.functions.claimable(sub_id).call() > 0:
-                tx = chain.send(sub.functions.claim(sub_id))
-                state.log_action("claim", f"claimed HelloFugu subscription {sub_id} after it ended", tx)
-            state.update(lambda st: st["fugu_reports"][key].__setitem__("claimed", True))
+        tx = chain.send(sub.functions.claim(sub_id))
+        log.info("claimed HelloFugu subscription %s: %s/tx/%s", sub_id, settings.EXPLORER, tx)
+        claimed.append({"sub_id": sub_id, "tx": tx})
+    return claimed
+
+
+def subscription_report(sub_id: int) -> dict | None:
+    s = _subscription().functions.getSub(sub_id).call()
+    if not s[0] or s[0] != listing_id():
+        return None
+    return {
+        "subscription": {"id": sub_id, "subscriber": s[1], "started_at": s[5], "ends_at": s[6],
+                         "active": not s[7] and time.time() < s[6]},
+        "report": report.assessment(f"Best stablecoin yield on Venus for wallet {s[1]}"),
+    }

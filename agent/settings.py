@@ -1,4 +1,5 @@
-"""Agent configuration, read once from the environment (.env locally, Render env vars in prod)."""
+"""Agent configuration, read once from the environment (.env locally; Vercel and GitHub Actions
+environment variables / secrets in production)."""
 
 import os
 from pathlib import Path
@@ -36,16 +37,16 @@ AGENT_ID = int(os.getenv("AGENT_ID") or 0) or None
 BASE_URL = (os.getenv("PUBLIC_BASE_URL") or "http://localhost:8000").rstrip("/")
 
 AGENT_PRIVATE_KEY = (os.getenv("AGENT_PRIVATE_KEY") or "").strip()
-# bnbagent's EVMWalletProvider keeps an encrypted keystore; this only protects that local file.
-WALLET_PASSWORD = os.getenv("WALLET_PASSWORD") or "halong-yield-keystore"
+WALLET_PASSWORD = os.getenv("WALLET_PASSWORD") or "halong-yield"  # SDK requires one; nothing is persisted
 
 # 0.05 U per assessment. U on BSC testnet has 18 decimals.
 JOB_PRICE_WEI = int(os.getenv("JOB_PRICE_WEI") or 5 * 10**16)
-CYCLE_HOURS = float(os.getenv("CYCLE_HOURS") or 12)
-TICK_SECONDS = int(os.getenv("TICK_SECONDS") or 60)
 
-DATA_DIR = Path(os.getenv("DATA_DIR") or ROOT / ".agent-data")
-STORAGE_API_KEY = os.getenv("STORAGE_API_KEY") or ""  # Pinata JWT; empty = serve deliverables from DATA_DIR
+# Deliverables are pinned to IPFS (Pinata JWT) and served through an HTTPS gateway.
+# Without a key (local development) they are written to DATA_DIR and served by the app itself.
+STORAGE_API_KEY = os.getenv("STORAGE_API_KEY") or ""
+STORAGE_GATEWAY_URL = (os.getenv("STORAGE_GATEWAY_URL") or "https://gateway.pinata.cloud/ipfs/").rstrip("/")
+DATA_DIR = Path(os.getenv("DATA_DIR") or ("/tmp/halong" if os.getenv("VERCEL") else ROOT / ".agent-data"))
 
 
 def require_agent_key() -> str:

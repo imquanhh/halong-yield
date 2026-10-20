@@ -1,9 +1,10 @@
 """ERC-8183 seller side: signed quotes, funded-job delivery and settlement.
 
 Flow (BSC testnet, BNB's AgenticCommerce kernel; Pokter and other escrow marketplaces fund it):
-negotiate -> buyer funds escrow -> notify_funded (or the background poll) -> verify the job is
-ours, FUNDED and carries a quote we signed -> build the assessment -> submit its manifest hash ->
-after the dispute window, settle so the job ends COMPLETED.
+negotiate -> buyer funds escrow -> notify_funded (delivered right away) or the 10-minute
+GitHub Actions poll -> verify the job is ours, FUNDED and carries a quote we signed -> build the
+assessment -> pin it to IPFS and submit its manifest hash -> after the dispute window, settle so
+the job ends COMPLETED. No local state: every step re-reads the chain.
 """
 
 import asyncio
@@ -12,10 +13,10 @@ import logging
 import time
 
 from bnbagent import EVMWalletProvider
-from bnbagent.erc8183 import ERC8183JobOps, JobStatus, NegotiationHandler
+from bnbagent.erc8183 import ERC8183JobOps, NegotiationHandler
 from bnbagent.storage import LocalStorageProvider
 
-from . import chain, report, settings, state
+from . import chain, report, settings
 
 log = logging.getLogger("halong.provider")
 
@@ -27,15 +28,27 @@ SETTLE_GRACE_SECONDS = 30
 
 
 def _storage():
-    if settings.STORAGE_API_KEY:
-        from bnbagent.storage import IPFSStorageProvider
-        return IPFSStorageProvider(api_key=settings.STORAGE_API_KEY)
-    return LocalStorageProvider(str(settings.DATA_DIR / "deliverables"))
+    if not settings.STORAGE_API_KEY:
+        return LocalStorageProvider(str(settings.DATA_DIR / "deliverables"))
+    from bnbagent.storage import IPFSStorageProvider
+
+    class GatewayIPFSStorage(IPFSStorageProvider):
+        """Publish the HTTPS gateway URL instead of ipfs://, so any buyer can fetch the manifest."""
+
+        async def upload(self, data: dict, filename: str | None = None) -> str:
+            return self.get_gateway_url(await super().upload(data, filename))
+
+    return GatewayIPFSStorage(
+        pinning_api_url="https://api.pinata.cloud/pinning/pinJSONToIPFS",
+        pinning_api_key=settings.STORAGE_API_KEY,
+        gateway_url=settings.STORAGE_GATEWAY_URL,
+    )
 
 
 class Provider:
     def __init__(self):
-        wallet = EVMWalletProvider(password=settings.WALLET_PASSWORD, private_key=settings.require_agent_key())
+        wallet = EVMWalletProvider(password=settings.WALLET_PASSWORD, private_key=settings.require_agent_key(),
+                                   persist=False)
         self.address = wallet.address
         self.ops = ERC8183JobOps(
             wallet, settings.NETWORK, storage_provider=_storage(),
@@ -49,7 +62,6 @@ class Provider:
             service_price=settings.JOB_PRICE_WEI, currency=self.client.payment_token, wallet_provider=wallet,
             chain_id=settings.CHAIN_ID, verifying_contract=self.client.commerce.address, quote_ttl_seconds=900,
         )
-        self._inflight: set[int] = set()
 
     # ------------------------------------------------------------------ quotes
 
@@ -75,54 +87,41 @@ class Provider:
             return asyncio.run(self.ops.submit_result(job_id, content, metadata))
 
     async def deliver(self, job_id: int) -> dict:
-        if job_id in self._inflight:
-            return {"status": "in_progress", "job_id": job_id}
-        self._inflight.add(job_id)
+        check = await self.ops.verify_job(job_id)
+        if not check.get("valid"):
+            return {"status": "rejected", "job_id": job_id, "reason": check.get("error")}
+        description = check["job"].get("description", "")
         try:
-            check = await self.ops.verify_job(job_id)
-            if not check.get("valid"):
-                return {"status": "rejected", "job_id": job_id, "reason": check.get("error")}
-            description = check.get("job", {}).get("description") or (await self.ops.get_job(job_id)).get("description", "")
-            try:
-                task = json.loads(description).get("task") or description
-            except (ValueError, AttributeError):
-                task = description
-            assessment = await asyncio.to_thread(report.assessment, task)
-            result = await asyncio.to_thread(
-                self._submit_locked, job_id, json.dumps(assessment, ensure_ascii=False),
-                {"agent": settings.AGENT_NAME, "answer": assessment["answer"]},
-            )
-            if not result.get("success"):
-                log.error("submit %s failed: %s", job_id, result)
-                return {"status": "failed", "job_id": job_id, "reason": result.get("error")}
-            state.update(lambda s: s["submitted_jobs"].__setitem__(
-                str(job_id), {"tx": result["txHash"], "url": result["deliverableUrl"], "at": int(time.time())}))
-            state.log_action("deliver", f"delivered ERC-8183 job {job_id}: {assessment['answer'][:120]}",
-                             result["txHash"])
-            return {"status": "submitted", "job_id": job_id, "tx": result["txHash"],
-                    "deliverable_url": result["deliverableUrl"], "answer": assessment["answer"]}
-        finally:
-            self._inflight.discard(job_id)
+            task = json.loads(description).get("task") or description
+        except (ValueError, AttributeError):
+            task = description
+        assessment = await asyncio.to_thread(report.assessment, task)
+        result = await asyncio.to_thread(
+            self._submit_locked, job_id, json.dumps(assessment, ensure_ascii=False),
+            {"agent": settings.AGENT_NAME, "answer": assessment["answer"]},
+        )
+        if not result.get("success"):
+            log.error("submit %s failed: %s", job_id, result)
+            return {"status": "failed", "job_id": job_id, "reason": result.get("error")}
+        log.info("delivered job %s: %s/tx/%s", job_id, settings.EXPLORER, result["txHash"])
+        return {"status": "submitted", "job_id": job_id, "tx": result["txHash"],
+                "deliverable_url": result["deliverableUrl"], "answer": assessment["answer"]}
 
-    # -------------------------------------------------------------- background
+    # ------------------------------------------------------------------- polls
 
-    async def tick(self) -> None:
+    async def deliver_pending(self) -> list[dict]:
         pending = await self.ops.get_pending_jobs()
-        for job in pending.get("jobs", []):
-            outcome = await self.deliver(int(job["jobId"]))
-            log.info("job %s: %s", job["jobId"], outcome.get("status"))
-        await asyncio.to_thread(self._settle_due)
+        return [await self.deliver(int(job["jobId"])) for job in pending.get("jobs", [])]
 
-    def _settle_due(self) -> None:
-        window = int(self.client.policy.dispute_window())
-        for key, info in list(state.get("submitted_jobs").items()):
-            if info.get("final"):
+    async def settle_due(self) -> list[dict]:
+        window = int(await asyncio.to_thread(self.client.policy.dispute_window))
+        submitted = await self.ops.get_submitted_jobs()
+        settled = []
+        for job in submitted.get("jobs", []):
+            if time.time() <= int(job["submittedAt"]) + window + SETTLE_GRACE_SECONDS:
                 continue
-            job = self.client.get_job(int(key))
-            if job.status == JobStatus.SUBMITTED and time.time() > job.submitted_at + window + SETTLE_GRACE_SECONDS:
-                with chain.TX_LOCK:
-                    tx = self.client.settle(int(key))["transactionHash"]
-                state.log_action("settle", f"settled ERC-8183 job {key} after the dispute window", tx)
-                job = self.client.get_job(int(key))
-            if job.status in (JobStatus.COMPLETED, JobStatus.REJECTED, JobStatus.EXPIRED):
-                state.update(lambda s: s["submitted_jobs"][key].__setitem__("final", job.status.name))
+            with chain.TX_LOCK:
+                tx = (await asyncio.to_thread(self.client.settle, int(job["jobId"])))["transactionHash"]
+            log.info("settled job %s: %s/tx/%s", job["jobId"], settings.EXPLORER, tx)
+            settled.append({"job_id": int(job["jobId"]), "tx": tx})
+        return settled

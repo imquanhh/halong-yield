@@ -1,26 +1,37 @@
 """Halong Yield's public surface: A2A agent card + JSON-RPC, ERC-8004 registration file,
-deliverables, and the background loop (jobs, settlement, HelloFugu, treasury cycle).
+per-subscription HelloFugu reports. Stateless, so it runs as a Vercel function (api/index.py);
+scheduled work lives in agent/worker.py.
 
 Run locally:  uvicorn agent.server:app --port 8000
 """
 
 import asyncio
-import contextlib
 import logging
 import time
 import uuid
 from datetime import UTC, datetime
+from functools import lru_cache
 
 from bnbagent.erc8004.agent_uri import AgentURIGenerator
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import fugu, report, settings, state, strategy
+from . import fugu, report, settings, strategy
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("halong.server")
 
-provider = None  # set at startup when AGENT_PRIVATE_KEY is configured
+# notify_funded delivers inside the request; past this the 10-minute poll finishes the job.
+DELIVER_TIMEOUT_SECONDS = 45
+
+
+@lru_cache(maxsize=1)
+def get_provider():
+    """The ERC-8183 seller, or None on a deployment without AGENT_PRIVATE_KEY (read-only)."""
+    if not settings.AGENT_PRIVATE_KEY:
+        return None
+    from .provider import Provider
+    return Provider()
 
 SKILLS = [
     {
@@ -88,41 +99,12 @@ def registration_file() -> dict:
                   "categories": [settings.CATEGORY], "tags": ["yield", "stablecoin", "venus", "bnb-chain", "erc-8183"]}
 
 
-# ----------------------------------------------------------------- background
-
-
-async def background_loop() -> None:
-    while True:
-        try:
-            if provider is not None:
-                await provider.tick()
-                await asyncio.to_thread(fugu.tick)
-                if time.time() - state.get("last_cycle_at") >= settings.CYCLE_HOURS * 3600:
-                    await asyncio.to_thread(strategy.run_cycle)
-        except Exception:
-            log.exception("background tick failed")
-        await asyncio.sleep(settings.TICK_SECONDS)
-
-
-@contextlib.asynccontextmanager
-async def lifespan(_app: FastAPI):
-    global provider
-    if settings.AGENT_PRIVATE_KEY:
-        from .provider import Provider
-        provider = Provider()
-        log.info("agent wallet %s, agent id %s, base %s", provider.address, settings.AGENT_ID, settings.BASE_URL)
-    else:
-        log.warning("AGENT_PRIVATE_KEY not set: serving read-only (no quotes, no deliveries)")
-    task = asyncio.create_task(background_loop())
-    yield
-    task.cancel()
-
-
-app = FastAPI(title=settings.AGENT_NAME, lifespan=lifespan)
+app = FastAPI(title=settings.AGENT_NAME)
 
 
 @app.get("/health")
 async def health():
+    provider = get_provider()
     return {"ok": True, "agent": settings.AGENT_NAME, "agent_id": settings.AGENT_ID,
             "wallet": provider.address if provider else None, "time": int(time.time())}
 
@@ -144,19 +126,21 @@ async def logo():
 
 @app.get("/")
 async def index():
-    snapshot = await asyncio.to_thread(strategy.treasury_snapshot) if provider else None
+    snapshot = await asyncio.to_thread(strategy.treasury_snapshot) if settings.AGENT_PRIVATE_KEY else None
     return {
         "name": settings.AGENT_NAME, "category": settings.CATEGORY, "description": settings.DESCRIPTION,
         "erc8004": {"chain_id": settings.CHAIN_ID, "registry": settings.IDENTITY_REGISTRY, "agent_id": settings.AGENT_ID},
         "agent_card": f"{settings.BASE_URL}/.well-known/agent-card.json",
         "price": f"{settings.JOB_PRICE_WEI / 1e18:g} U per assessment (ERC-8183, chain 97)",
+        "hellofugu_listing": await asyncio.to_thread(fugu.listing_id),
         "treasury": snapshot,
-        "jobs_delivered": len(state.get("submitted_jobs")),
+        "source": "https://github.com/imquanhh/halong-yield",
     }
 
 
 @app.get("/erc8183/job/{job_id}/response")
 async def deliverable(job_id: int):
+    """Local development only: production deliverables are pinned to IPFS."""
     path = settings.DATA_DIR / "deliverables" / f"erc8183-job-{job_id}.json"
     if not path.is_file():
         raise HTTPException(404, "no deliverable for this job")
@@ -166,10 +150,10 @@ async def deliverable(job_id: int):
 
 @app.get("/hellofugu/{sub_id}")
 async def hellofugu_report(sub_id: int):
-    info = state.get("fugu_reports").get(str(sub_id))
-    if not info:
+    result = await asyncio.to_thread(fugu.subscription_report, sub_id)
+    if result is None:
         raise HTTPException(404, "not a subscription to this agent")
-    return info
+    return result
 
 
 # ----------------------------------------------------------------------- A2A
@@ -217,6 +201,7 @@ async def a2a(request: Request):
     message = (body.get("params") or {}).get("message") or {}
     data, text = _parse(message)
     skill = data.get("skill") or "yield_scan"
+    provider = get_provider() if skill in ("negotiate", "negotiate-erc8183-job", "notify_funded") else None
 
     if skill in ("negotiate", "negotiate-erc8183-job"):
         if provider is None:
@@ -238,11 +223,17 @@ async def a2a(request: Request):
             reply = {"status": "rejected", "job_id": job_id, "reason": f"escrow must be on chain {settings.CHAIN_ID}"}
         else:
             check = await provider.ops.verify_job(job_id)
-            if check.get("valid"):
-                asyncio.create_task(provider.deliver(job_id))
-                reply = {"status": "accepted", "job_id": job_id}
-            else:
+            if not check.get("valid"):
                 reply = {"status": "rejected", "job_id": job_id, "reason": check.get("error")}
+            else:
+                # A serverless function cannot keep working after it answers, so deliver first.
+                reply = {"status": "accepted", "job_id": job_id}
+                try:
+                    done = await asyncio.wait_for(provider.deliver(job_id), DELIVER_TIMEOUT_SECONDS)
+                    if done.get("status") == "submitted":
+                        reply |= {"submitted": True, "tx": done["tx"], "deliverable_url": done["deliverable_url"]}
+                except Exception:
+                    log.exception("in-request delivery of job %s failed; the scheduled poll will retry", job_id)
         return {"jsonrpc": "2.0", "id": req_id, "result": _message(reply)}
 
     if skill == "yield_scan":

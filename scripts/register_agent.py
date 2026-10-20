@@ -1,6 +1,6 @@
 """One-time setup from the campaign wallet (run locally; the campaign key never goes to the server).
 
-    python scripts/register_agent.py --base-url https://halong-yield.onrender.com [--hellofugu]
+    python scripts/register_agent.py --base-url https://halong-yield.vercel.app [--hellofugu]
 
 1. tops up the agent wallet with tBNB for gas;
 2. registers the agent on the ERC-8004 IdentityRegistry (BSC testnet), owned by the campaign
