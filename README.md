@@ -83,6 +83,19 @@ The dashboard also checks each signature in the browser.
 - **HelloFugu.** Subscribe to listing 26 (tBNB, $0.01 per 10 minutes). `/hellofugu/<subId>` serves a live
   report for the renter's wallet; when the subscription ends the agent claims it.
 - **Free preview.** `{"skill": "yield_scan"}` or any plain text message.
+- **MCP (Claude, Cursor, any MCP client).** Stateless Streamable HTTP at `https://halong-yield.vercel.app/mcp`
+  with three tools: `yield_board`, `market_detail` (free reads) and `hire_quote` (a signed quote for a full
+  assessment). `{"mcpServers": {"halong-yield": {"url": "https://halong-yield.vercel.app/mcp"}}}`
+
+## Reputation and track record
+
+Every deliverable ends with a link to [`/rate`](https://halong-yield.vercel.app/rate): one transaction from the
+hiring wallet writes a 1-5 score (stored 0-100, tagged with the job id) to the ERC-8004 Reputation Registry
+`0x8004B663056A597Dffe9eCcC1965A193B7388713`, which refuses ratings from the owner or operators. The dashboard
+shows the hires, distinct hiring wallets, completed jobs and the on-chain rating, read from the chain.
+
+`GET /tick` runs the agent's due work (deliver funded jobs, settle past the dispute window, claim ended
+subscriptions) at most once every two minutes; any uptime pinger pointed at it keeps delivery within minutes.
 
 ## Layout
 
@@ -96,7 +109,9 @@ agent/
   strategy.py   the treasury cycle                      receipts.py         signed decision receipts
   history.py    APY snapshots on the data branch        llm.py              optional Claude layer
   provider.py   ERC-8183 seller (bnbagent SDK)          fugu.py             HelloFugu subscriptions
-  chain.py      web3, one locked nonce-managed sender   web/index.html      the dashboard
+  mcp.py        stateless MCP server                    reputation.py       ERC-8004 ratings
+  activity.py   track record from the chain             web/                dashboard, rate page
+  chain.py      web3, one locked nonce-managed sender
 api/index.py    Vercel entrypoint
 .github/workflows/  tick.yml (every 10 min) and cycle.yml (01:17, 13:17 UTC), writing to the data branch
 scripts/        new_agent_wallet.py; register_agent.py (ERC-8004, agent wallet, HelloFugu; campaign wallet)

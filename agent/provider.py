@@ -16,7 +16,7 @@ from bnbagent import EVMWalletProvider
 from bnbagent.erc8183 import ERC8183JobOps, NegotiationHandler
 from bnbagent.storage import LocalStorageProvider
 
-from . import chain, report, settings
+from . import chain, report, reputation, settings
 
 log = logging.getLogger("halong.provider")
 
@@ -96,6 +96,11 @@ class Provider:
         except (ValueError, AttributeError):
             task = description
         assessment = await asyncio.to_thread(report.assessment, task, True)  # paid job: add the Claude layer
+        assessment["rate_this_agent"] = {
+            "url": reputation.rate_link(job_id),
+            "how": "Open the link with the wallet you hired from: one transaction writes your score to the ERC-8004 "
+                   "Reputation Registry for this agent.",
+        }
         result = await asyncio.to_thread(
             self._submit_locked, job_id, json.dumps(assessment, ensure_ascii=False),
             {"agent": settings.AGENT_NAME, "answer": assessment["answer"]},

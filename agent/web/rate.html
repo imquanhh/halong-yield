@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rate Halong Yield</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&display=swap">
+<style>
+  :root { --bg: #f3f7f6; --surface: #fff; --fg: #10292b; --muted: #557070; --line: #d3e2df; --accent: #128270; --gold: #c78f1c; --bad: #b84a3c; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0a1a1c; --surface: #102629; --fg: #e2f0ed; --muted: #94b4af; --line: #21403f; --accent: #3fc2aa; --gold: #efc25c; --bad: #e07a6c; color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 "IBM Plex Sans", system-ui, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 40px max(18px, env(safe-area-inset-left)) 60px; display: grid; gap: 18px; }
+  a.back { color: var(--accent); text-decoration: none; font-size: 14px; }
+  h1 { font: 700 2rem/1.1 "Bricolage Grotesque", system-ui, sans-serif; margin: 0; }
+  p { margin: 0; color: var(--muted); }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 14px; }
+  label { font-weight: 600; font-size: 14px; }
+  .stars { display: flex; gap: 6px; }
+  .stars button { font-size: 30px; line-height: 1; background: none; border: 0; cursor: pointer; color: var(--line); padding: 2px; }
+  .stars button.on { color: var(--gold); }
+  .stars button:focus-visible, .go:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+  input, textarea { width: 100%; font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  .go { background: var(--accent); color: #fff; border: 0; border-radius: 9px; padding: 12px 16px; font: 600 15px inherit; cursor: pointer; }
+  .go:disabled { opacity: .5; cursor: default; }
+  .msg { font: 13px "IBM Plex Mono", monospace; color: var(--muted); overflow-wrap: anywhere; }
+  .msg.err { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="/">← Halong Yield</a>
+  <h1>Rate this agent</h1>
+  <p>Your rating is written on chain to the ERC-8004 Reputation Registry for agent #2647, from the wallet you hired with. The registry refuses ratings from the agent's owner, so every score here comes from someone else.</p>
+  <div class="card">
+    <div>
+      <label id="stars-label">Your score</label>
+      <div class="stars" role="group" aria-labelledby="stars-label" id="stars"></div>
+    </div>
+    <div>
+      <label for="job">ERC-8183 job id (optional)</label>
+      <input id="job" inputmode="numeric" placeholder="e.g. 1581">
+    </div>
+    <div>
+      <label for="comment">Comment (optional, stored with the rating)</label>
+      <textarea id="comment" rows="3" maxlength="400" placeholder="What did the assessment get right?"></textarea>
+    </div>
+    <button class="go" type="button" id="send" disabled>Connect wallet and rate</button>
+    <div class="msg" id="msg" role="status" aria-live="polite">Pick a score.</div>
+  </div>
+  <p>Network: BSC testnet (chain 97). Registry: <span class="msg">0x8004B663056A597Dffe9eCcC1965A193B7388713</span></p>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+const REGISTRY = "0x8004B663056A597Dffe9eCcC1965A193B7388713";
+const AGENT_ID = 2647;
+const ABI = ["function giveFeedback(uint256 agentId, int128 value, uint8 valueDecimals, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)"];
+const CHAIN = { chainId: "0x61", chainName: "BNB Smart Chain Testnet", nativeCurrency: { name: "tBNB", symbol: "tBNB", decimals: 18 },
+                rpcUrls: ["https://bsc-testnet-rpc.publicnode.com"], blockExplorerUrls: ["https://testnet.bscscan.com"] };
+let score = 0;
+const starsEl = document.getElementById("stars"), sendBtn = document.getElementById("send"), msg = document.getElementById("msg");
+const job = new URLSearchParams(location.search).get("job");
+if (job) document.getElementById("job").value = job;
+
+for (let i = 1; i <= 5; i++) {
+  const b = document.createElement("button");
+  b.type = "button"; b.id = `star-${i}`; b.textContent = "★"; b.setAttribute("aria-label", `${i} of 5`);
+  b.addEventListener("click", () => { score = i; render(); });
+  starsEl.appendChild(b);
+}
+function render() {
+  [...starsEl.children].forEach((b, i) => b.classList.toggle("on", i < score));
+  sendBtn.disabled = score === 0;
+  msg.className = "msg"; msg.textContent = score ? `${score} of 5, recorded as ${score * 20} out of 100.` : "Pick a score.";
+}
+
+sendBtn.addEventListener("click", async () => {
+  if (!window.ethereum) { msg.className = "msg err"; msg.textContent = "No wallet found in this browser. Open this page in MetaMask, Trust or OKX Wallet."; return; }
+  try {
+    sendBtn.disabled = true; msg.className = "msg"; msg.textContent = "Connecting…";
+    await window.ethereum.request({ method: "eth_requestAccounts" });
+    try { await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN.chainId }] }); }
+    catch (e) { if (e.code === 4902) await window.ethereum.request({ method: "wallet_addEthereumChain", params: [CHAIN] }); else throw e; }
+    const signer = await new ethers.BrowserProvider(window.ethereum).getSigner();
+    const comment = document.getElementById("comment").value.trim();
+    const jobId = document.getElementById("job").value.trim();
+    const uri = comment ? "data:application/json;base64," + btoa(unescape(encodeURIComponent(JSON.stringify({ comment, job: jobId || null })))) : "";
+    const reg = new ethers.Contract(REGISTRY, ABI, signer);
+    msg.textContent = "Confirm the transaction in your wallet…";
+    const tx = await reg.giveFeedback(AGENT_ID, score * 20, 0, "yield-assessment", jobId ? `erc8183:${jobId}` : "", location.origin + "/a2a", uri, ethers.ZeroHash);
+    msg.textContent = `Sent ${tx.hash}. Waiting for confirmation…`;
+    await tx.wait();
+    msg.innerHTML = `Rated. Thank you. <a href="https://testnet.bscscan.com/tx/${tx.hash}" target="_blank" rel="noopener">View on BscScan ↗</a>`;
+  } catch (e) {
+    msg.className = "msg err";
+    const text = (e.shortMessage || e.message || String(e));
+    msg.textContent = text.includes("Self-feedback") ? "This wallet owns or operates the agent, so the registry will not accept its rating." : "Not sent: " + text;
+    sendBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

@@ -16,13 +16,16 @@ from bnbagent.erc8004.agent_uri import AgentURIGenerator
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import fugu, history, markets, receipts, report, risk, settings, strategy
+from . import activity, fugu, history, markets, mcp, receipts, report, reputation, risk, settings, strategy
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("halong.server")
 
 # notify_funded delivers inside the request; past this the 10-minute poll finishes the job.
 DELIVER_TIMEOUT_SECONDS = 45
+# /tick is public so any uptime pinger can drive delivery; one run per instance per window.
+TICK_MIN_INTERVAL = 120
+_last_tick = 0.0
 
 
 @lru_cache(maxsize=1)
@@ -89,6 +92,7 @@ def registration_file() -> dict:
         description=settings.DESCRIPTION,
         endpoints=[
             {"name": "A2A", "endpoint": f"{settings.BASE_URL}/.well-known/agent-card.json", "version": "0.3.0"},
+            {"name": "MCP", "endpoint": f"{settings.BASE_URL}/mcp", "version": mcp.PROTOCOL_VERSION},
             {"name": "web", "endpoint": f"{settings.BASE_URL}/"},
             # The public repo whose README names registry ID and chain; marketplaces read it from here.
             {"name": "source", "endpoint": settings.REPO_URL},
@@ -153,6 +157,51 @@ def _overview() -> dict:
 @app.get("/api/overview")
 async def overview():
     return await asyncio.to_thread(_overview)
+
+
+@app.get("/api/track")
+async def track():
+    def build():
+        record = activity.track_record(get_provider().address) if settings.AGENT_PRIVATE_KEY else None
+        return {"track_record": record, "reputation": reputation.summary(), "rate": reputation.rate_link()}
+    return await asyncio.to_thread(build)
+
+
+@app.get("/rate")
+async def rate_page():
+    return FileResponse(settings.ROOT / "agent" / "web" / "rate.html", media_type="text/html")
+
+
+@app.post("/mcp")
+async def mcp_endpoint(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}, 400)
+    messages = body if isinstance(body, list) else [body]
+    replies = [r for r in [await asyncio.to_thread(mcp.handle, m) for m in messages if isinstance(m, dict)] if r]
+    if not replies:
+        return JSONResponse(None, status_code=202)
+    return JSONResponse(replies if isinstance(body, list) else replies[0])
+
+
+@app.get("/mcp")
+async def mcp_get():
+    return JSONResponse({"error": "POST JSON-RPC to this endpoint (MCP Streamable HTTP, stateless)"}, 405,
+                        headers={"Allow": "POST"})
+
+
+@app.get("/tick")
+async def public_tick():
+    """Deliver funded jobs, settle, claim. Safe to call by anyone: it only does the agent's own due work."""
+    global _last_tick
+    if not settings.AGENT_PRIVATE_KEY:
+        return {"skipped": "not configured"}
+    if time.time() - _last_tick < TICK_MIN_INTERVAL:
+        return {"skipped": f"ran less than {TICK_MIN_INTERVAL}s ago", "ok": True}
+    _last_tick = time.time()
+    from . import worker
+    return {"ok": True, **await worker.tick()}
 
 
 @app.get("/api/status")
