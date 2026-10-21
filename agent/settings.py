@@ -51,10 +51,11 @@ WALLET_PASSWORD = os.getenv("WALLET_PASSWORD") or "halong-yield"  # SDK requires
 # 0.05 U per assessment. U on BSC testnet has 18 decimals.
 JOB_PRICE_WEI = int(os.getenv("JOB_PRICE_WEI") or 5 * 10**16)
 
-# Deliverables are pinned to IPFS (Pinata JWT) and served through an HTTPS gateway.
-# Without a key (local development) they are written to DATA_DIR and served by the app itself.
+# Deliverables are pinned to IPFS (Pinata JWT) and served through the account's dedicated gateway,
+# which serves only content that account pinned. Without a key (local development) they are
+# written to DATA_DIR and served by the app itself.
 STORAGE_API_KEY = os.getenv("STORAGE_API_KEY") or ""
-STORAGE_GATEWAY_URL = _https(os.getenv("STORAGE_GATEWAY_URL") or "https://gateway.pinata.cloud/ipfs")
+STORAGE_GATEWAY_URL = _https(os.getenv("STORAGE_GATEWAY_URL") or "https://white-kind-mosquito-904.mypinata.cloud/ipfs")
 if not STORAGE_GATEWAY_URL.endswith("/ipfs"):
     STORAGE_GATEWAY_URL += "/ipfs"
 

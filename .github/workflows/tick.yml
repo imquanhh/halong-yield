@@ -25,6 +25,6 @@ jobs:
         env:
           AGENT_PRIVATE_KEY: ${{ secrets.AGENT_PRIVATE_KEY }}
           STORAGE_API_KEY: ${{ secrets.STORAGE_API_KEY }}
-          STORAGE_GATEWAY_URL: ${{ vars.STORAGE_GATEWAY_URL }}
+          STORAGE_GATEWAY_URL: ${{ vars.STORAGE_GATEWAY_URL || 'https://white-kind-mosquito-904.mypinata.cloud/ipfs' }}
           AGENT_ID: "2647"
           PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL || 'https://halong-yield.vercel.app' }}
