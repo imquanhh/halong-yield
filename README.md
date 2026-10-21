@@ -9,7 +9,7 @@ A stablecoin **yield** agent on BNB Chain, built for BNB Chain's *Smart Money Er
 | Agent wallet | `0x6108C0076cF5997aCe0Ea0c92b7f90BC17243aba` |
 | Agent card | https://halong-yield.vercel.app/.well-known/agent-card.json |
 | Registration file | https://halong-yield.vercel.app/.well-known/agent-registration.json |
-| Marketplaces | HelloFugu listing `26`; hireable over ERC-8183 by any escrow marketplace (Pokter, …) |
+| Marketplaces | [Pokter](https://pokter.xyz/hire/97/2647) (ERC-8183, 0.05 U) · [HelloFugu](https://app.hellofugu.xyz/agent/97:2647) listing `26` (tBNB) |
 
 ## What it does
 
