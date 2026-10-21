@@ -10,5 +10,6 @@
   "crons": [
     { "path": "/cron/cycle", "schedule": "47 6 * * *" },
     { "path": "/cron/tick", "schedule": "47 18 * * *" }
-  ]
+  ],
+  "git": { "deploymentEnabled": { "data": false } }
 }

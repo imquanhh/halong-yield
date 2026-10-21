@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Halong Yield</title>
+<meta name="description" content="Stablecoin yield agent on BNB Chain: Venus and Aave V3 ranked by risk-adjusted APY, a treasury that acts on it, and signed decision receipts.">
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a dark bay-coloured masthead with the live leader, then a yield board, treasury, receipts, hire. */
+  :root {
+    --bg: #f3f7f6; --surface: #ffffff; --surface-2: #eaf2f0; --fg: #10292b; --muted: #557070; --line: #d3e2df;
+    --accent: #128270; --accent-soft: #d6efe9; --gold: #b7841a; --gold-soft: #f6ecd2;
+    --good: #1c8a5a; --warn: #b9761b; --bad: #b84a3c;
+    --mast: #0c3338; --mast-2: #11444a; --mast-fg: #e9f6f3; --mast-muted: #a3c9c2; --mast-gold: #f3c969;
+    --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #0a1a1c; --surface: #102629; --surface-2: #143034; --fg: #e2f0ed; --muted: #94b4af; --line: #21403f;
+    --accent: #3fc2aa; --accent-soft: #143c38; --gold: #efc25c; --gold-soft: #3a3016;
+    --good: #45c08a; --warn: #e3a345; --bad: #e07a6c; --mast: #0b2a2e; --mast-2: #0f383d; color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body); }
+  a { color: var(--accent); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding-left: max(18px, env(safe-area-inset-left)); padding-right: max(18px, env(safe-area-inset-right)); }
+  header.mast { background: radial-gradient(1200px 400px at 85% -10%, var(--mast-2), var(--mast)); color: var(--mast-fg); }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 18px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
+  .brand img { width: 40px; height: 40px; border-radius: 10px; }
+  .brand b { font-family: var(--display); font-size: 1.35rem; letter-spacing: -0.01em; }
+  .chip { font: 500 12px var(--mono); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,.18); color: var(--mast-muted); white-space: nowrap; }
+  .hero { display: grid; grid-template-columns: 1.3fr 1fr; gap: 28px; padding-block: 26px 40px; align-items: end; }
+  .hero h1 { font-family: var(--display); font-size: clamp(2rem, 4.6vw, 3.3rem); line-height: 1.04; margin: 0 0 14px; letter-spacing: -0.02em; text-wrap: balance; }
+  .hero h1 em { font-style: normal; color: var(--mast-gold); }
+  .hero p { margin: 0; color: var(--mast-muted); max-width: 56ch; }
+  .cta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 9px; font-weight: 600; text-decoration: none; border: 1px solid transparent; cursor: pointer; font-family: inherit; font-size: 14px; }
+  .btn.primary { background: var(--mast-gold); color: #2a1f04; }
+  .btn.ghost { border-color: rgba(255,255,255,.25); color: var(--mast-fg); background: transparent; }
+  .btn:focus-visible { outline: 3px solid var(--mast-gold); outline-offset: 2px; }
+  .leader { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 20px; }
+  .leader small { color: var(--mast-muted); text-transform: uppercase; letter-spacing: .1em; font-size: 11px; font-weight: 600; }
+  .leader .big { font: 700 clamp(2.4rem, 5vw, 3.2rem)/1 var(--display); margin: 8px 0 6px; font-variant-numeric: tabular-nums; }
+  .leader .big span { font-size: .4em; color: var(--mast-muted); margin-left: 6px; }
+  .leader .sub { color: var(--mast-muted); font-size: 14px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
+  .stats div { border-top: 1px solid rgba(255,255,255,.12); padding-top: 8px; }
+  .stats b { display: block; font: 600 1.05rem var(--mono); }
+  .stats span { color: var(--mast-muted); font-size: 12px; }
+  main { padding-block: 34px 60px; display: grid; gap: 40px; }
+  section h2 { font: 700 1.5rem/1.2 var(--display); margin: 0 0 4px; letter-spacing: -0.01em; }
+  section > p.lede { margin: 0 0 16px; color: var(--muted); max-width: 72ch; }
+  .board { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; min-width: 760px; }
+  th, td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font: 600 11px var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); background: var(--surface-2); }
+  td.num, th.num { text-align: right; font-family: var(--mono); }
+  tr:last-child td { border-bottom: 0; }
+  tr.out td { color: var(--muted); }
+  .proto { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .grade { display: inline-block; min-width: 26px; text-align: center; font: 700 12px var(--mono); padding: 3px 7px; border-radius: 6px; }
+  .gA { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+  .gB { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .gC, .gX { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+  .util { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .bar { width: 64px; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .bar i.hot { background: var(--warn); }
+  .why { color: var(--muted); font-size: 12.5px; max-width: 280px; }
+  .spark { width: 96px; height: 26px; display: block; margin-left: auto; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; min-width: 0; }
+  .card h3 { margin: 0 0 12px; font: 600 1rem var(--body); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .card h3 a { font-weight: 500; font-size: 13px; }
+  .pos { display: grid; gap: 12px; }
+  .pos-row { display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; align-items: center; font-variant-numeric: tabular-nums; }
+  .stack { height: 12px; border-radius: 6px; background: var(--surface-2); overflow: hidden; display: flex; }
+  .stack .s { background: var(--accent); } .stack .i { background: var(--gold); opacity: .7; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 12px; flex-wrap: wrap; }
+  .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 6px; vertical-align: -1px; }
+  .weights { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .weights span { font: 500 12px var(--mono); background: var(--accent-soft); color: var(--accent); padding: 4px 9px; border-radius: 6px; }
+  .receipt { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 8px; background: var(--surface); }
+  .receipt + .receipt { margin-top: 10px; }
+  .rhead { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .rhead b { font-size: 14px; }
+  .ok { color: var(--good); font: 600 12px var(--mono); }
+  .acts { margin: 0; padding-left: 18px; font-size: 13.5px; }
+  .acts li { margin: 2px 0; }
+  .mono { font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .vbtn { font: 500 12px var(--body); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-2); color: var(--fg); cursor: pointer; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 8px; align-content: start; }
+  .step b { font-size: 1rem; }
+  .step p { margin: 0; color: var(--muted); font-size: 14px; }
+  .step .btn { justify-self: start; background: var(--accent); color: #fff; }
+  pre { margin: 0; background: var(--surface-2); border-radius: 10px; padding: 12px; overflow-x: auto; font: 12.5px/1.5 var(--mono); }
+  footer { border-top: 1px solid var(--line); padding-block: 22px 40px; color: var(--muted); font-size: 13px; }
+  footer .wrap { display: flex; gap: 8px 20px; flex-wrap: wrap; }
+  .skeleton { color: var(--muted); padding: 18px; }
+  @media (max-width: 860px) { .hero, .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header class="mast">
+  <div class="wrap">
+    <div class="top">
+      <a class="brand" href="/"><img src="/logo.svg" alt=""><b>Halong Yield</b></a>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span class="chip">ERC-8004 #2647 · BSC testnet</span>
+        <span class="chip">category: yield</span>
+      </div>
+    </div>
+    <div class="hero">
+      <div>
+        <h1>Where your stablecoins earn the most on BNB Chain, <em>after risk</em>.</h1>
+        <p>Halong Yield reads every stablecoin market on Venus and Aave V3, prices in utilization, exit liquidity, depeg and issuer risk, and tells you where an amount should go. Its own treasury follows the same ranking, and every move it makes is signed.</p>
+        <div class="cta">
+          <a class="btn primary" href="https://pokter.xyz/hire/97/2647" target="_blank" rel="noopener">Hire on Pokter · 0.05 U</a>
+          <a class="btn ghost" href="https://app.hellofugu.xyz/agent/97:2647" target="_blank" rel="noopener">Hire on HelloFugu</a>
+        </div>
+      </div>
+      <div class="leader" id="leader">
+        <small>Best risk-adjusted market now</small>
+        <div class="big" id="leader-apy">…</div>
+        <div class="sub" id="leader-sub">Reading BNB Chain…</div>
+        <div class="stats">
+          <div><b id="s-markets">…</b><span>markets compared</span></div>
+          <div><b id="s-block">…</b><span>mainnet block</span></div>
+          <div><b id="s-receipts">…</b><span>signed receipts</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section aria-labelledby="board-h">
+    <h2 id="board-h">Live yield board</h2>
+    <p class="lede">Every dollar stablecoin market on Venus Core Pool and Aave V3, ranked by risk-adjusted APY for a $10,000 position. The penalty column says exactly why a market loses points.</p>
+    <div class="board"><table>
+      <thead><tr><th>Market</th><th class="num">Supply APY</th><th class="num">Risk-adjusted</th><th>Grade</th><th class="num">Utilization</th><th class="num">Withdrawable</th><th>Why it lost points</th><th class="num">7 days</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="8" class="skeleton">Loading live markets from BNB Chain…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section aria-labelledby="treasury-h">
+    <h2 id="treasury-h">The agent's own treasury</h2>
+    <p class="lede">Twice a day the agent weights USDT, USDC and BUSD by their best mainnet risk-adjusted APY and moves its Venus treasury on BSC testnet toward those weights. Testnet Venus has no borrowers, so mainnet supplies the signal.</p>
+    <div class="grid2">
+      <div class="card">
+        <h3>Positions on Venus (testnet) <a id="wallet-link" href="#" target="_blank" rel="noopener">wallet activity ↗</a></h3>
+        <div class="pos" id="positions"><div class="skeleton">Loading…</div></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>supplied to Venus</span><span><i style="background:var(--gold);opacity:.7"></i>idle</span></div>
+        <div class="weights" id="weights"></div>
+      </div>
+      <div class="card">
+        <h3>Signed decision receipts <a href="https://github.com/imquanhh/halong-yield/blob/data/receipts.json" target="_blank" rel="noopener">all ↗</a></h3>
+        <div id="receipts"><div class="skeleton">Loading…</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="hire-h">
+    <h2 id="hire-h">Hire it</h2>
+    <p class="lede">An assessment costs 0.05 U on BSC testnet. Give an amount, a horizon and, if you like, your wallet: the report ranks every market for you and, for a wallet, returns the exact unsigned transactions to move your funds. Nothing is ever signed for you.</p>
+    <div class="steps">
+      <div class="step"><b>Pokter · ERC-8183 escrow</b><p>Write your brief, take the signed quote, fund the escrow. The agent delivers in about a minute and the job settles itself after the 15-minute review window.</p><a class="btn" href="https://pokter.xyz/hire/97/2647" target="_blank" rel="noopener">Open on Pokter</a></div>
+      <div class="step"><b>HelloFugu · stream in tBNB</b><p>Rent the agent by the minute in tBNB. While it runs, a live report for your wallet sits at /hellofugu/&lt;subscription&gt;.</p><a class="btn" href="https://app.hellofugu.xyz/agent/97:2647" target="_blank" rel="noopener">Open on HelloFugu</a></div>
+      <div class="step"><b>Direct · A2A</b><p>Any agent can quote it over A2A JSON-RPC and fund the job on AgenticCommerce.</p>
+<pre>POST /a2a  message/send
+{"skill": "negotiate",
+ "task_description": "Best yield for 5,000 USDT over 90 days, wallet 0x…"}</pre></div>
+    </div>
+  </section>
+</main>
+
+<footer><div class="wrap">
+  <a href="https://github.com/imquanhh/halong-yield" target="_blank" rel="noopener">Source on GitHub</a>
+  <a href="/.well-known/agent-card.json">A2A agent card</a>
+  <a href="/.well-known/agent-registration.json">ERC-8004 registration</a>
+  <a href="/api/overview">API</a>
+  <span>Data: Venus Core Pool, Aave V3 and their oracles on BNB Chain mainnet.</span>
+</div></footer>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+const EXPLORER = "https://testnet.bscscan.com";
+const fmt = (n, d = 2) => Number(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const colors = { "Venus": "#f0b429", "Aave V3": "#9d7cf3" };
+
+function spark(series) {
+  if (!series || series.length < 2) return '<span class="mono">collecting</span>';
+  const ys = series.map((p) => p[1]), min = Math.min(...ys), max = Math.max(...ys), span = max - min || 1;
+  const pts = ys.map((y, i) => `${(i / (ys.length - 1)) * 92 + 2},${22 - ((y - min) / span) * 18 + 2}`).join(" ");
+  const last = pts.split(" ").pop().split(",");
+  return `<svg class="spark" viewBox="0 0 96 26" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.6"/><circle cx="${last[0]}" cy="${last[1]}" r="2.4" fill="var(--accent)"/></svg>`;
+}
+
+function renderBoard(markets) {
+  document.getElementById("rows").innerHTML = markets.map((m) => {
+    const out = !!m.excluded;
+    const why = out ? m.excluded : (m.penalties.map((p) => `${p.reason} (−${fmt(p.pp)} pp)`).join("; ") || "no penalty");
+    const g = out ? '<span class="grade gX">—</span>' : `<span class="grade g${m.grade}">${m.grade}</span>`;
+    return `<tr class="${out ? "out" : ""}">
+      <td><span class="proto"><span class="dot" style="background:${colors[m.protocol] || "var(--muted)"}"></span>${esc(m.protocol)} · ${esc(m.asset)}</span></td>
+      <td class="num">${fmt(m.supply_apy)}%</td>
+      <td class="num"><b>${out ? "—" : fmt(m.risk_adjusted_apy) + "%"}</b></td>
+      <td>${g}</td>
+      <td class="num"><div class="util">${fmt(m.utilization, 1)}%<span class="bar"><i class="${m.utilization > 85 ? "hot" : ""}" style="width:${Math.min(100, m.utilization)}%"></i></span></div></td>
+      <td class="num">${fmt(m.liquidity, 0)}</td>
+      <td class="why">${esc(why)}</td>
+      <td class="num">${spark(m.history)}</td></tr>`;
+  }).join("");
+}
+
+function renderTreasury(t, weights) {
+  if (!t) { document.getElementById("positions").innerHTML = '<div class="skeleton">Treasury not configured on this deployment.</div>'; return; }
+  document.getElementById("wallet-link").href = t.activity;
+  const rows = Object.entries(t.positions);
+  const max = Math.max(1, ...rows.map(([, p]) => p.idle + p.supplied_to_venus));
+  document.getElementById("positions").innerHTML = rows.map(([a, p]) => `
+    <div class="pos-row"><b>${a}</b>
+      <div class="stack" title="${fmt(p.supplied_to_venus)} supplied, ${fmt(p.idle)} idle">
+        <span class="s" style="width:${(p.supplied_to_venus / max) * 100}%"></span><span class="i" style="width:${(p.idle / max) * 100}%"></span></div>
+      <span class="mono">${fmt(p.supplied_to_venus)}</span></div>`).join("");
+  document.getElementById("weights").innerHTML = Object.entries(weights || {}).map(([a, w]) => `<span>${a} target ${Math.round(w * 100)}%</span>`).join("");
+}
+
+function renderReceipts(list) {
+  const el = document.getElementById("receipts");
+  if (!list.length) { el.innerHTML = '<div class="skeleton">No receipts yet.</div>'; return; }
+  el.innerHTML = list.map((r, i) => {
+    const when = new Date(r.created_at * 1000).toLocaleString();
+    const acts = (r.actions || []).filter((a) => a.kind !== "float").map((a) => `<li>${esc(a.detail)} <a href="${EXPLORER}/tx/${a.tx}" target="_blank" rel="noopener">tx ↗</a></li>`).join("") || "<li>No move needed: positions already at target.</li>";
+    const w = r.decision && r.decision.weights ? Object.entries(r.decision.weights).map(([a, x]) => `${a} ${Math.round(x * 100)}%`).join(" · ") : "";
+    return `<div class="receipt">
+      <div class="rhead"><b>${when}</b><span class="${r.verified ? "ok" : "mono"}">${r.verified ? "✓ signature valid" : "unverified"}</span></div>
+      <div class="mono">weights ${esc(w)}</div>
+      <ul class="acts">${acts}</ul>
+      <div class="mono">hash ${esc(r.proof.hash)}<br>signer ${esc(r.proof.signer)}${r.ipfs ? ` · <a href="${r.ipfs}" target="_blank" rel="noopener">IPFS ↗</a>` : ""}</div>
+      <div><button class="vbtn" type="button" id="verify-${i}" data-i="${i}">Verify signature in this browser</button> <span class="mono" id="vres-${i}"></span></div>
+    </div>`;
+  }).join("");
+  list.forEach((r, i) => document.getElementById(`verify-${i}`).addEventListener("click", () => {
+    const out = document.getElementById(`vres-${i}`);
+    try {
+      const signer = ethers.verifyMessage(ethers.getBytes(r.proof.hash), r.proof.signature);
+      out.textContent = signer.toLowerCase() === r.proof.signer.toLowerCase() ? `recovered ${signer}: matches the agent wallet` : `recovered ${signer}: does not match`;
+    } catch (e) { out.textContent = "could not verify: " + e.message; }
+  }));
+}
+
+async function load() {
+  try {
+    const res = await fetch("/api/overview");
+    const d = await res.json();
+    const top = d.markets.find((m) => !m.excluded);
+    if (top) {
+      document.getElementById("leader-apy").innerHTML = `${fmt(top.risk_adjusted_apy)}%<span>${esc(top.protocol)} · ${esc(top.asset)}</span>`;
+      document.getElementById("leader-sub").textContent = `${fmt(top.supply_apy)}% supply APY, grade ${top.grade}, ${fmt(top.utilization, 1)}% utilized, ${fmt(top.liquidity, 0)} ${top.asset} withdrawable.`;
+    }
+    document.getElementById("s-markets").textContent = d.markets.length;
+    document.getElementById("s-block").textContent = Number(d.block).toLocaleString("en-US");
+    document.getElementById("s-receipts").textContent = d.receipts_total;
+    renderBoard(d.markets); renderTreasury(d.treasury, d.weights); renderReceipts(d.receipts);
+  } catch (e) {
+    document.getElementById("rows").innerHTML = `<tr><td colspan="8" class="skeleton">Could not read the chain just now (${esc(e.message)}). Refresh in a moment.</td></tr>`;
+  }
+}
+load();
+</script>
+</body>
+</html>

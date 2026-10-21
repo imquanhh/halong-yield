@@ -95,7 +95,7 @@ class Provider:
             task = json.loads(description).get("task") or description
         except (ValueError, AttributeError):
             task = description
-        assessment = await asyncio.to_thread(report.assessment, task)
+        assessment = await asyncio.to_thread(report.assessment, task, True)  # paid job: add the Claude layer
         result = await asyncio.to_thread(
             self._submit_locked, job_id, json.dumps(assessment, ensure_ascii=False),
             {"agent": settings.AGENT_NAME, "answer": assessment["answer"]},

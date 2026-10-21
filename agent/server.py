@@ -1,6 +1,6 @@
-"""Halong Yield's public surface: A2A agent card + JSON-RPC, ERC-8004 registration file,
-per-subscription HelloFugu reports. Stateless, so it runs as a Vercel function (api/index.py);
-scheduled work lives in agent/worker.py.
+"""Halong Yield's public surface: the dashboard, A2A agent card + JSON-RPC, ERC-8004 registration
+file, per-subscription HelloFugu reports. Stateless, so it runs as a Vercel function
+(api/index.py); scheduled work lives in agent/worker.py.
 
 Run locally:  uvicorn agent.server:app --port 8000
 """
@@ -16,7 +16,7 @@ from bnbagent.erc8004.agent_uri import AgentURIGenerator
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import fugu, report, settings, strategy
+from . import fugu, history, markets, receipts, report, risk, settings, strategy
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("halong.server")
@@ -54,7 +54,8 @@ SKILLS = [
         "id": "yield_scan",
         "name": "Stablecoin yield scan (free preview)",
         "description": ("Ask where a stablecoin amount earns the most on BNB Chain. Calling this skill directly returns "
-                        "a free preview: today's top Venus stablecoin APYs and what a hire would return."),
+                        "a free preview: today's best risk-adjusted stablecoin markets on Venus and Aave V3 and what a "
+                        "hire would return (full ranking, analyst note, and a wallet plan with unsigned transactions)."),
         "tags": ["yield", "stablecoin", "venus", "apy"],
         "examples": ["Where should I deposit 5,000 USDT for the best yield over 90 days?",
                      "Best stablecoin supply APY on Venus right now for 20k USDC?",
@@ -96,7 +97,7 @@ def registration_file() -> dict:
         supported_trust=["reputation"],
     )
     return reg | {"x402Support": False, "active": True, "category": settings.CATEGORY,
-                  "categories": [settings.CATEGORY], "tags": ["yield", "stablecoin", "venus", "bnb-chain", "erc-8183"]}
+                  "categories": [settings.CATEGORY], "tags": ["yield", "stablecoin", "venus", "aave", "risk-adjusted", "bnb-chain", "erc-8183"]}
 
 
 app = FastAPI(title=settings.AGENT_NAME)
@@ -127,7 +128,32 @@ async def logo():
 
 
 @app.get("/")
-async def index():
+async def dashboard():
+    return FileResponse(settings.ROOT / "agent" / "web" / "index.html", media_type="text/html")
+
+
+def _overview() -> dict:
+    block, ms = markets.stable_markets()
+    rows = [{**m.as_dict(), "risk_adjusted_apy": a["risk_adjusted_apy"], "grade": a["grade"],
+             "excluded": a["excluded"], "penalties": a["penalties"], "history": history.series(m.key, 48)}
+            for m, a in risk.rank(ms, 10_000)]
+    treasury = weights = None
+    if settings.AGENT_PRIVATE_KEY:
+        treasury = strategy.treasury_snapshot()
+        weights = strategy.weights(strategy.signal()[1])
+    recent = [{**r, "verified": receipts.verify(r)} for r in receipts.recent(5)]
+    return {"agent": {"name": settings.AGENT_NAME, "erc8004": f"{settings.CHAIN_ID}:{settings.AGENT_ID}"},
+            "block": block, "markets": rows, "treasury": treasury, "weights": weights,
+            "receipts": recent, "receipts_total": len(receipts.index()), "read_at": int(time.time())}
+
+
+@app.get("/api/overview")
+async def overview():
+    return await asyncio.to_thread(_overview)
+
+
+@app.get("/api/status")
+async def status():
     snapshot = await asyncio.to_thread(strategy.treasury_snapshot) if settings.AGENT_PRIVATE_KEY else None
     return {
         "name": settings.AGENT_NAME, "category": settings.CATEGORY, "description": settings.DESCRIPTION,
@@ -159,7 +185,7 @@ async def cron(task: str, request: Request):
     if task == "tick":
         return await worker.tick()
     if task == "cycle":
-        return {"actions": await asyncio.to_thread(strategy.run_cycle)}
+        return await asyncio.to_thread(strategy.run_cycle)
     raise HTTPException(404, "unknown task")
 
 
@@ -263,9 +289,10 @@ async def a2a(request: Request):
     if skill == "yield_scan":
         task = data.get("task_description") or data.get("task") or text
         preview = await asyncio.to_thread(report.preview, task)
-        top = ", ".join(f"{m['asset']} {m['supply_apy']:.2f}%" for m in preview["top_markets"])
-        summary = (f"Top Venus stablecoin supply APYs on BNB Chain right now: {top}. "
-                   f"Hire for the full assessment ({preview['price']}).")
+        top = ", ".join(f"{m['protocol']} {m['asset']} {m['supply_apy']:.2f}% ({m['risk_adjusted_apy']:.2f}% risk-adjusted)"
+                        for m in preview["top_markets"])
+        summary = (f"Best risk-adjusted stablecoin markets on BNB Chain right now, out of {preview['markets_compared']}: "
+                   f"{top}. Hire for the full assessment ({preview['price']}).")
         if not preview["can_answer"]:
             summary = preview["hint"]
         return {"jsonrpc": "2.0", "id": req_id, "result": _completed_task(preview, summary, message.get("contextId"))}

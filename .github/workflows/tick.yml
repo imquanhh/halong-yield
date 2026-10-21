@@ -1,6 +1,6 @@
 name: tick
 # Every 10 minutes: deliver funded ERC-8183 jobs, settle jobs past the dispute window,
-# claim ended HelloFugu subscriptions.
+# claim ended HelloFugu subscriptions, and record a mainnet APY snapshot on the data branch.
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -10,12 +10,19 @@ concurrency:
   group: agent-wallet        # shared with cycle.yml: one agent-wallet writer at a time
   cancel-in-progress: false
 
+permissions:
+  contents: write            # push snapshots to the data branch
+
 jobs:
   tick:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: data
+          path: data
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -26,5 +33,17 @@ jobs:
           AGENT_PRIVATE_KEY: ${{ secrets.AGENT_PRIVATE_KEY }}
           STORAGE_API_KEY: ${{ secrets.STORAGE_API_KEY }}
           STORAGE_GATEWAY_URL: ${{ vars.STORAGE_GATEWAY_URL || 'https://white-kind-mosquito-904.mypinata.cloud/ipfs' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AGENT_ID: "2647"
           PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL || 'https://halong-yield.vercel.app' }}
+      - name: APY snapshot
+        if: always()
+        run: python -m agent.worker snapshot --history data/history.json
+      - name: Commit snapshot
+        if: always()
+        working-directory: data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || { git commit -q -m "APY snapshot" && git push -q; }

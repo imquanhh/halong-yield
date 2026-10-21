@@ -1,5 +1,6 @@
 name: treasury cycle
-# Twice a day: one Venus treasury cycle (rank on mainnet, supply the leader, rotate out of laggards).
+# Twice a day: one Venus treasury cycle (weights from mainnet risk-adjusted APYs), with its signed
+# decision receipt indexed in receipts.json on the data branch.
 on:
   schedule:
     - cron: "17 1,13 * * *"
@@ -9,18 +10,34 @@ concurrency:
   group: agent-wallet        # shared with tick.yml: one agent-wallet writer at a time
   cancel-in-progress: false
 
+permissions:
+  contents: write            # push receipts to the data branch
+
 jobs:
   cycle:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: data
+          path: data
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python -m agent.worker cycle
+      - run: python -m agent.worker cycle --receipts data/receipts.json
         env:
           AGENT_PRIVATE_KEY: ${{ secrets.AGENT_PRIVATE_KEY }}
+          STORAGE_API_KEY: ${{ secrets.STORAGE_API_KEY }}
+          STORAGE_GATEWAY_URL: ${{ vars.STORAGE_GATEWAY_URL || 'https://white-kind-mosquito-904.mypinata.cloud/ipfs' }}
           AGENT_ID: "2647"
+      - name: Commit receipt
+        working-directory: data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || { git commit -q -m "Treasury cycle receipt" && git push -q; }

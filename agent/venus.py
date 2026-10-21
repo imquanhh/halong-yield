@@ -1,23 +1,39 @@
-"""Venus Core Pool: market reads (mainnet for analysis, testnet for the treasury) and supply/redeem.
+"""Venus Core Pool: stablecoin market reads (mainnet, for analysis) and the treasury's
+supply / redeem (testnet).
 
 APY follows the Venus UI convention, daily compounding of the per-block rate:
 ((ratePerBlock * blocksPerDay + 1) ** 365 - 1). Interest accrues per block, so blocksPerYear
 is measured from the chain's recent block times rather than taken from the interest rate
-model, whose constant can lag a block-time change (models still say 42M while BNB Chain now
-produces ~70M blocks a year).
+model, whose constant can lag a block-time change (some models still say 42M while BNB Chain
+now produces ~70M blocks a year). Prices come from Venus's ResilientOracle.
 """
 
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
 
 from web3 import Web3
 
 from . import chain
+from .model import Market
 
 MAINNET_COMPTROLLER = Web3.to_checksum_address("0xfD36E2c2a6789Db23113685031d7F16329158384")
 # vToken symbols of the dollar stablecoin markets the analysis covers.
 STABLE_VTOKENS = {"vUSDT", "vUSDC", "vFDUSD", "vUSD1", "vDAI", "vTUSD", "vlisUSD", "vU", "vUSDe", "vBUSD"}
+# Their addresses, found by scanning getAllMarkets(); listed here so a cold start skips ~55
+# symbol() calls. Set VENUS_DISCOVER=1 to rescan instead.
+KNOWN_STABLE_VTOKENS = [
+    "0xfD5840Cd36d94D7229439859C0112a4185BC0255",  # vUSDT
+    "0xecA88125a5ADbe82614ffC12D0DB554E2e2867C8",  # vUSDC
+    "0xC4eF4229FEc74Ccfe17B2bdeF7715fAC740BA0ba",  # vFDUSD
+    "0x0C1DA220D301155b87318B90692Da8dc43B67340",  # vUSD1
+    "0x334b3eCB4DCa3593BCCC3c7EBD1A1C1d1780FBF1",  # vDAI
+    "0x3d5E269787d562b74aCC55F18Bd26C5D09Fa245E",  # vU
+    "0x74ca6930108F775CC667894EEa33843e691680d7",  # vUSDe
+    "0x689E0daB47Ab16bcae87Ec18491692BF621Dc6Ab",  # vlisUSD
+    "0xBf762cd5991cA1DCdDaC9ae5C638F5B5Dc3Bee6E",  # vTUSD
+    "0x95c78222B3D6e262426483D42CfA53685A67Ab9D",  # vBUSD
+]
 
 # The treasury's markets on BSC testnet; their underlyings have a public allocateTo faucet.
 TESTNET_TREASURY = {
@@ -37,8 +53,7 @@ def _views(*names_types):
 
 VTOKEN_ABI = _views(("symbol", "string"), ("underlying", "address"), ("supplyRatePerBlock", "uint256"),
                     ("borrowRatePerBlock", "uint256"), ("getCash", "uint256"), ("totalBorrows", "uint256"),
-                    ("totalReserves", "uint256"), ("exchangeRateStored", "uint256"), ("totalSupply", "uint256"),
-                    ("interestRateModel", "address")) + [
+                    ("totalReserves", "uint256"), ("exchangeRateStored", "uint256"), ("totalSupply", "uint256")) + [
     {"type": "function", "name": "balanceOf", "stateMutability": "view",
      "inputs": [{"name": "owner", "type": "address"}], "outputs": [{"type": "uint256"}]},
     {"type": "function", "name": "mint", "stateMutability": "nonpayable",
@@ -58,32 +73,13 @@ ERC20_ABI = _views(("symbol", "string"), ("decimals", "uint8")) + [
     {"type": "function", "name": "allocateTo", "stateMutability": "nonpayable",
      "inputs": [{"name": "owner", "type": "address"}, {"name": "value", "type": "uint256"}], "outputs": []},
 ]
-COMPTROLLER_ABI = [{"type": "function", "name": "getAllMarkets", "stateMutability": "view", "inputs": [],
-                    "outputs": [{"type": "address[]"}]}]
-IRM_ABI = _views(("blocksPerYear", "uint256"))
-
-
-@dataclass
-class Market:
-    chain_id: int
-    vtoken: str
-    asset: str
-    decimals: int
-    supply_apy: float      # percent
-    borrow_apy: float      # percent
-    utilization: float     # percent of supplied liquidity that is borrowed
-    cash: float            # idle liquidity, in asset units (withdrawable now)
-    total_supplied: float  # in asset units
-    blocks_per_year: int   # measured from the chain
-    model_blocks_per_year: int | None  # what the interest rate model assumes
-
-    def as_dict(self) -> dict:
-        d = asdict(self)
-        for k in ("supply_apy", "borrow_apy", "utilization"):
-            d[k] = round(d[k], 4)
-        for k in ("cash", "total_supplied"):
-            d[k] = round(d[k], 2)
-        return d
+COMPTROLLER_ABI = [
+    {"type": "function", "name": "getAllMarkets", "stateMutability": "view", "inputs": [],
+     "outputs": [{"type": "address[]"}]},
+    {"type": "function", "name": "oracle", "stateMutability": "view", "inputs": [], "outputs": [{"type": "address"}]},
+]
+ORACLE_ABI = [{"type": "function", "name": "getUnderlyingPrice", "stateMutability": "view",
+               "inputs": [{"name": "vToken", "type": "address"}], "outputs": [{"type": "uint256"}]}]
 
 
 def apy_percent(rate_per_block: int, blocks_per_year: int) -> float:
@@ -107,42 +103,44 @@ def blocks_per_year(w3: Web3) -> int:
     return bpy
 
 
-def read_market(w3: Web3, vtoken: str) -> Market:
+def read_market(w3: Web3, vtoken: str, oracle: str | None = None) -> Market:
     v = w3.eth.contract(Web3.to_checksum_address(vtoken), abi=VTOKEN_ABI)
     f = v.functions
     underlying = w3.eth.contract(f.underlying().call(), abi=ERC20_ABI)
     decimals = underlying.functions.decimals().call()
     bpy = blocks_per_year(w3)
-    try:
-        model_bpy = w3.eth.contract(f.interestRateModel().call(), abi=IRM_ABI).functions.blocksPerYear().call()
-    except Exception:
-        model_bpy = None
     cash, borrows, reserves = f.getCash().call(), f.totalBorrows().call(), f.totalReserves().call()
     supplied_raw = f.totalSupply().call() * f.exchangeRateStored().call() // 10**18
     denom = cash + borrows - reserves
+    price = None
+    if oracle:
+        # ResilientOracle scales prices to 36 - decimals.
+        price = w3.eth.contract(oracle, abi=ORACLE_ABI).functions.getUnderlyingPrice(v.address).call() / 10**(36 - decimals)
     scale = 10**decimals
     return Market(
-        chain_id=w3.eth.chain_id,
-        vtoken=v.address,
-        asset=underlying.functions.symbol().call(),
-        decimals=decimals,
+        protocol="Venus", chain_id=w3.eth.chain_id, asset=underlying.functions.symbol().call(),
+        underlying=underlying.address, market=v.address, decimals=decimals,
         supply_apy=apy_percent(f.supplyRatePerBlock().call(), bpy),
         borrow_apy=apy_percent(f.borrowRatePerBlock().call(), bpy),
         utilization=(borrows / denom * 100) if denom > 0 else 0.0,
-        cash=cash / scale,
-        total_supplied=supplied_raw / scale,
-        blocks_per_year=bpy,
-        model_blocks_per_year=model_bpy,
+        liquidity=cash / scale, total_supplied=supplied_raw / scale, price=price,
     )
 
 
 _stable_vtokens: list[str] = []
+_oracle: str | None = None
 _mainnet_cache: tuple[float, int, list[Market]] = (0.0, 0, [])
 
 
-def _discover_mainnet_stables() -> list[str]:
+def _discover_mainnet_stables() -> None:
+    global _stable_vtokens, _oracle
     w3 = chain.mainnet()
-    markets = w3.eth.contract(MAINNET_COMPTROLLER, abi=COMPTROLLER_ABI).functions.getAllMarkets().call()
+    comptroller = w3.eth.contract(MAINNET_COMPTROLLER, abi=COMPTROLLER_ABI)
+    _oracle = comptroller.functions.oracle().call()
+    if not os.getenv("VENUS_DISCOVER"):
+        _stable_vtokens = [Web3.to_checksum_address(a) for a in KNOWN_STABLE_VTOKENS]
+        return
+    markets = comptroller.functions.getAllMarkets().call()
 
     def symbol(addr):
         try:
@@ -151,24 +149,24 @@ def _discover_mainnet_stables() -> list[str]:
             return addr, ""
 
     with ThreadPoolExecutor(max_workers=8) as pool:
-        return [addr for addr, sym in pool.map(symbol, markets) if sym in STABLE_VTOKENS]
+        _stable_vtokens = [addr for addr, sym in pool.map(symbol, markets) if sym in STABLE_VTOKENS]
 
 
 def mainnet_stable_markets() -> tuple[int, list[Market]]:
     """(block number, markets) for every Venus Core Pool stablecoin market on BNB Chain, cached 5 min."""
-    global _stable_vtokens, _mainnet_cache
+    global _mainnet_cache
     fetched_at, block, markets = _mainnet_cache
     if markets and time.time() - fetched_at < CACHE_SECONDS:
         return block, markets
     if not _stable_vtokens:
-        _stable_vtokens = _discover_mainnet_stables()
+        _discover_mainnet_stables()
     w3 = chain.mainnet()
     block = w3.eth.block_number
 
     def read_with_retry(addr):
         for attempt in range(3):
             try:
-                return read_market(w3, addr)
+                return read_market(w3, addr, _oracle)
             except Exception:
                 if attempt == 2:
                     return None  # public RPCs throttle bursts; one missing market beats no report
@@ -176,7 +174,6 @@ def mainnet_stable_markets() -> tuple[int, list[Market]]:
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         markets = [m for m in pool.map(read_with_retry, _stable_vtokens) if m is not None]
-    markets.sort(key=lambda m: m.supply_apy, reverse=True)
     _mainnet_cache = (time.time(), block, markets)
     return block, markets
 
