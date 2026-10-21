@@ -34,6 +34,7 @@ EXPLORER = "https://testnet.bscscan.com"
 
 IDENTITY_REGISTRY = "0x8004A818BFB912233c491871b3d84c89A494BD9e"
 AGENT_ID = int(os.getenv("AGENT_ID") or 0) or None
+REPO_URL = "https://github.com/imquanhh/halong-yield"
 
 
 def _https(value: str) -> str:

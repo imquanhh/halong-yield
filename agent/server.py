@@ -75,6 +75,7 @@ def agent_card() -> dict:
         "preferredTransport": "JSONRPC",
         "version": settings.VERSION,
         "provider": {"organization": settings.AGENT_NAME, "url": settings.BASE_URL},
+        "documentationUrl": settings.REPO_URL,
         "capabilities": {"streaming": False, "pushNotifications": False},
         "defaultInputModes": ["application/json", "text/plain"],
         "defaultOutputModes": ["application/json"],
@@ -89,6 +90,8 @@ def registration_file() -> dict:
         endpoints=[
             {"name": "A2A", "endpoint": f"{settings.BASE_URL}/.well-known/agent-card.json", "version": "0.3.0"},
             {"name": "web", "endpoint": f"{settings.BASE_URL}/"},
+            # The public repo whose README names registry ID and chain; marketplaces read it from here.
+            {"name": "source", "endpoint": settings.REPO_URL},
         ],
         image=f"{settings.BASE_URL}/logo.svg",
         agent_id=settings.AGENT_ID,
